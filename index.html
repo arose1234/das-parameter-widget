@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Interactive f_s^max and f_dx^max Plot</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -19,32 +20,62 @@
     input[type=range] {
       width: 300px;
     }
+    .description {
+      max-width: 800px;
+      font-size: 16px;
+      margin-bottom: 20px;
+      color: #333;
+      background: #f5f5f5;
+      padding: 15px;
+      border-left: 5px solid #3b82f6;
+    }
+    .sample-count {
+      margin-top: 10px;
+      font-size: 18px;
+      font-weight: 500;
+      color: #333;
+    }
   </style>
 </head>
 <body>
   <h1>Plots: f<sub>s</sub><sup>max</sup> and f<sub>dx</sub><sup>max</sup></h1>
+  <div class="description">
+    This widget shows the sampling capabilities of Distributed Acoustic Sensing (DAS) based on multiple factors —<br><br>
+    <strong style="color: blue;">BLUE</strong>: <em>f<sub>s</sub><sup>max</sup></em> based on the total cable length and index of refraction.<br>
+    <strong style="color: red;">RED</strong>: <em>f<sub>dx</sub><sup>max</sup></em> based on the wave speed and channel spacing.<br><br>
+    The <strong>lower line</strong> between the two indicates the <em>maximum frequency that can be resolved</em>.
+  </div>
+
   <div class="controls">
     <label for="n">n (Index of Refraction): <span id="n-value">1.5</span></label>
     <input type="range" id="n" min="1" max="2" value="1.5" step="0.01">
-
-    <label for="L">L (Cable Length in meters): <span id="L-value">1000</span></label>
-    <input type="range" id="L" min="1" max="10000" value="1000" step="10">
 
     <label for="v">v (Wave Speed in m/s): <span id="v-value">2000</span></label>
     <input type="range" id="v" min="500" max="5000" value="2000" step="10">
 
     <label for="dx">dx (Channel Spacing in meters): <span id="dx-value">10</span></label>
     <input type="range" id="dx" min="1" max="100" value="10" step="1">
+
+    <label for="L">L (Cable Length in meters): <span id="L-value">1000</span></label>
+    <input type="range" id="L" min="100" max="90000" value="1000" step="10">
+
+    <label for="bytes">Bytes per sample: <span id="bytes-value">2</span></label>
+    <input type="range" id="bytes" min="0" max="5" value="1" step="1">
+  </div>
+
+  <div class="sample-count" id="sample-count">
+    Sampling frequency limit: calculating...
   </div>
 
   <canvas id="lineChart" width="600" height="400"></canvas>
 
   <script>
     const ctx = document.getElementById('lineChart').getContext('2d');
-    const c = 299792458; // speed of light in meters per second
+    const c = 299792458;
+    const byteOptions = [1, 2, 4, 8, 16, 32];
 
     const generateData = (n, L, v, dx) => {
-        const LValues = Array.from({ length: 50 }, (_, i) => 100 * Math.pow(10, 0.05 * i)); // From ~100 to 10,000
+      const LValues = Array.from({ length: 100 }, (_, i) => 100 + i * 900);
       const f_sValues = LValues.map(Lval => (c / n) / (2 * Lval));
       const f_dxValues = LValues.map(() => v / (dx / 2));
       return { LValues, f_sValues, f_dxValues };
@@ -77,13 +108,54 @@
         ]
       },
       options: {
+        plugins: {
+          annotation: {
+            annotations: {
+              verticalLine: {
+                type: 'line',
+                xMin: 1000,
+                xMax: 1000,
+                borderColor: 'green',
+                borderWidth: 2,
+                label: {
+                  content: 'L',
+                  enabled: true,
+                  position: 'start'
+                }
+              },
+              horizontalLine: {
+                type: 'line',
+                yMin: (c / 1.5) / (2 * 1000),
+                yMax: (c / 1.5) / (2 * 1000),
+                borderColor: 'purple',
+                borderWidth: 2,
+                label: {
+                  content: 'fₛᵐᵃˣ at L',
+                  enabled: true,
+                  position: 'end'
+                }
+              },
+              shadedUnsafe: {
+                type: 'box',
+                yMin: (c / 1.5) / (2 * 1000),
+                yMax: 20000,
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                borderWidth: 0
+              }
+            }
+          }
+        },
         scales: {
           x: {
-            type: 'logarithmic',
-            title: { display: true, text: 'Cable Length L (m)' }
+            type: 'linear',
+            title: { display: true, text: 'Cable Length L (m)' },
+            min: 0,
+            max: 90000
           },
           y: {
             type: 'logarithmic',
+            min: 1,
+            max: 20000,
             title: { display: true, text: 'Frequency (Hz)' }
           }
         }
@@ -94,27 +166,53 @@
     const LSlider = document.getElementById('L');
     const vSlider = document.getElementById('v');
     const dxSlider = document.getElementById('dx');
+    const bytesSlider = document.getElementById('bytes');
 
     const nValue = document.getElementById('n-value');
     const LValue = document.getElementById('L-value');
     const vValue = document.getElementById('v-value');
     const dxValue = document.getElementById('dx-value');
+    const bytesValue = document.getElementById('bytes-value');
+    const sampleCountDisplay = document.getElementById('sample-count');
 
     const updateChart = () => {
       const n = parseFloat(nSlider.value);
       const L = parseFloat(LSlider.value);
       const v = parseFloat(vSlider.value);
       const dx = parseFloat(dxSlider.value);
+      const byteIndex = parseInt(bytesSlider.value);
+      const bytesPerSample = byteOptions[byteIndex];
 
       nValue.textContent = n;
       LValue.textContent = L;
       vValue.textContent = v;
       dxValue.textContent = dx;
+      bytesValue.textContent = bytesPerSample;
 
       const { LValues, f_sValues, f_dxValues } = generateData(n, L, v, dx);
       chart.data.labels = LValues;
       chart.data.datasets[0].data = f_sValues;
       chart.data.datasets[1].data = f_dxValues;
+
+      const fsMaxAtL = (c / n) / (2 * L);
+      const fdxMax = v / (dx / 2);
+      const limit = Math.min(fsMaxAtL, fdxMax);
+      const channels = Math.floor(L / dx);
+      const totalSamplesPerDay = Math.floor(limit * 86400 * channels);
+      const storageGB = (totalSamplesPerDay * bytesPerSample) / (1024 ** 3);
+
+      chart.options.plugins.annotation.annotations.verticalLine.xMin = L;
+      chart.options.plugins.annotation.annotations.verticalLine.xMax = L;
+
+      chart.options.plugins.annotation.annotations.horizontalLine.yMin = fsMaxAtL;
+      chart.options.plugins.annotation.annotations.horizontalLine.yMax = fsMaxAtL;
+      chart.options.plugins.annotation.annotations.horizontalLine.label.content = `fₛᵐᵃˣ ≈ ${fsMaxAtL.toFixed(2)} Hz`;
+
+      chart.options.plugins.annotation.annotations.shadedUnsafe.yMin = limit;
+      chart.options.plugins.annotation.annotations.shadedUnsafe.yMax = 20000;
+
+      sampleCountDisplay.textContent = `Sampling frequency limit: ${limit.toFixed(2)} Hz → Channels: ${channels} → Total samples/day: ${totalSamplesPerDay.toLocaleString()} → Est. Storage: ${storageGB.toFixed(2)} GB/day`;
+
       chart.update();
     };
 
@@ -122,6 +220,9 @@
     LSlider.addEventListener('input', updateChart);
     vSlider.addEventListener('input', updateChart);
     dxSlider.addEventListener('input', updateChart);
+    bytesSlider.addEventListener('input', updateChart);
+
+    updateChart(); // initial render
   </script>
 </body>
 </html>
